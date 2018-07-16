@@ -64,6 +64,7 @@ typedef enum command
     ARG_LE_MSDOS,
     ARG_VERBOSE,
     ARG_IGNORE_ACCESS_ERRORS,
+    ARG_DRY
 } command_t;
 
 static const option_t opts[] =
@@ -174,6 +175,13 @@ static const option_t opts[] =
             "print process progress to stderr",
             0
     },
+    {
+        ARG_DRY,
+            "y",
+            "dry",
+            "perform dry run, return 0 if file(s) not affected",
+            0
+    },
     { 0, 0, 0, 0, 0 }               // sentinel
 };
 
@@ -216,6 +224,7 @@ typedef struct
     unsigned tab_mode: 2; /* 0: none, 1: entab, 2: detab; 3: retab */
     unsigned lf_mode: 2; /* 0: autodetect, 1: UNIX, 2: MSDOS, 3: old-style Mac (CR-only) */
     unsigned ignore_access_errors: 1;
+    unsigned dry: 1;
 } cmd_t;
 
 typedef struct
@@ -450,6 +459,7 @@ int main(int argc, const char **argv)
     unsigned int maxemptylines = 20;
     const char *lang = "auto";
     cmd_t cmd = {0};
+    unsigned int differs = 0;
     const char *fpath;
     const char *fname;
     const char *fname4err;
@@ -537,6 +547,10 @@ int main(int argc, const char **argv)
 
         case ARG_LE_MSDOS:
             cmd.lf_mode = 2;
+            continue;
+
+        case ARG_DRY:
+            cmd.dry = 1;
             continue;
 
         case GETOPTS_UNKNOWN:
@@ -924,12 +938,20 @@ int main(int argc, const char **argv)
         }
         *d = 0;
 
-        // processing done, now write result to file:
-        len = writefile(&fdef, obuf, d - obuf);
-        if (len < 0)
+        if (len != d - obuf)
+            differs++;
+        else if (memcmp(buf, obuf, len) != 0)
+            differs++;
+
+        if (!cmd.dry)
         {
-            fprintf(stderr, "*** ERROR: failure while WRITING data to file '%s'\n", out_fname);
-            exit(EXIT_FAILURE);
+            // processing done, now write result to file:
+            len = writefile(&fdef, obuf, d - obuf);
+            if (len < 0)
+            {
+                fprintf(stderr, "*** ERROR: failure while WRITING data to file '%s'\n", out_fname);
+                exit(EXIT_FAILURE);
+            }
         }
 
         closefile(&fdef);
@@ -955,8 +977,9 @@ int main(int argc, const char **argv)
 
     if (cmd.verbose)
     {
-        fprintf(stderr, "Processing: ---done---\n");
+        fprintf(stderr, "Processing: ---done--- (differs: %d)\n", differs);
     }
-    exit(EXIT_SUCCESS);
+
+    exit((!cmd.dry || differs == 0) ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
